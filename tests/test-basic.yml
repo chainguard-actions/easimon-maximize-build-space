@@ -1,0 +1,50 @@
+name: Test basic usage (default inputs)
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Record disk space before
+        id: before
+        run: |
+          df -h
+          echo "avail_before=$(df --block-size=1M --output=avail / | tail -1 | tr -d ' ')" >> "$GITHUB_OUTPUT"
+
+      - id: action
+        uses: .
+        with:
+          root-reserve-mb: '512'
+          temp-reserve-mb: '100'
+          swap-size-mb: '1024'
+
+      - name: Assert build volume is mounted at GITHUB_WORKSPACE
+        run: |
+          echo "Checking mount at GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
+          MOUNT_POINT=$(df --output=target "$GITHUB_WORKSPACE" | tail -1 | tr -d ' ')
+          echo "actual mount point: $MOUNT_POINT"
+          if [ "$MOUNT_POINT" != "$GITHUB_WORKSPACE" ]; then
+            echo "FAIL: expected GITHUB_WORKSPACE to be a mount point, got: $MOUNT_POINT"
+            exit 1
+          fi
+          echo "PASS: GITHUB_WORKSPACE is mounted on the build volume"
+
+      - name: Assert swap is active
+        run: |
+          echo "Checking swap:"
+          swapon --show
+          SWAP_COUNT=$(swapon --show | grep -c '/dev/mapper/buildvg-swap' || true)
+          echo "swap devices matching buildvg-swap: $SWAP_COUNT"
+          if [ "$SWAP_COUNT" -lt 1 ]; then
+            echo "FAIL: expected buildvg-swap to be active"
+            exit 1
+          fi
+          echo "PASS: swap is active"
+
+      - name: Assert disk space report
+        run: |
+          echo "Final disk space:"
+          df -h
+          echo "PASS: disk space report completed"

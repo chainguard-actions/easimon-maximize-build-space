@@ -1,0 +1,50 @@
+name: Test custom build-mount-path
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - id: action
+        uses: .
+        with:
+          root-reserve-mb: '512'
+          temp-reserve-mb: '100'
+          swap-size-mb: '1024'
+          build-mount-path: '/build'
+          build-mount-path-ownership: 'runner:runner'
+
+      - name: Assert build volume is mounted at custom path
+        run: |
+          echo "Checking mount at /build"
+          MOUNT_POINT=$(df --output=target /build | tail -1 | tr -d ' ')
+          echo "actual mount point: $MOUNT_POINT"
+          if [ "$MOUNT_POINT" != "/build" ]; then
+            echo "FAIL: expected /build to be a mount point, got: $MOUNT_POINT"
+            exit 1
+          fi
+          echo "PASS: /build is mounted on the build volume"
+
+      - name: Assert custom mount path is writable
+        run: |
+          echo "Testing write access to /build"
+          touch /build/test-file.txt
+          if [ ! -f /build/test-file.txt ]; then
+            echo "FAIL: could not write to /build"
+            exit 1
+          fi
+          echo "PASS: /build is writable"
+
+      - name: Assert swap is active
+        run: |
+          echo "Checking swap:"
+          swapon --show
+          SWAP_COUNT=$(swapon --show | grep -c '/dev/mapper/buildvg-swap' || true)
+          echo "swap devices matching buildvg-swap: $SWAP_COUNT"
+          if [ "$SWAP_COUNT" -lt 1 ]; then
+            echo "FAIL: expected buildvg-swap to be active"
+            exit 1
+          fi
+          echo "PASS: swap is active"

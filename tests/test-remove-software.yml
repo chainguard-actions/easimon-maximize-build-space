@@ -1,0 +1,77 @@
+name: Test remove software options
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Record disk space before
+        run: |
+          echo "Disk space before:"
+          df -h /
+
+      - id: action
+        uses: .
+        with:
+          root-reserve-mb: '512'
+          temp-reserve-mb: '100'
+          swap-size-mb: '1024'
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+          remove-codeql: 'true'
+
+      - name: Assert dotnet directory is removed
+        run: |
+          echo "Checking /usr/share/dotnet is removed"
+          if [ -d /usr/share/dotnet ]; then
+            echo "FAIL: /usr/share/dotnet still exists"
+            exit 1
+          fi
+          echo "PASS: /usr/share/dotnet is removed (or was never present)"
+
+      - name: Assert android directory is removed
+        run: |
+          echo "Checking /usr/local/lib/android is removed"
+          if [ -d /usr/local/lib/android ]; then
+            echo "FAIL: /usr/local/lib/android still exists"
+            exit 1
+          fi
+          echo "PASS: /usr/local/lib/android is removed (or was never present)"
+
+      - name: Assert haskell directory is removed
+        run: |
+          echo "Checking /opt/ghc is removed"
+          if [ -d /opt/ghc ]; then
+            echo "FAIL: /opt/ghc still exists"
+            exit 1
+          fi
+          echo "PASS: /opt/ghc is removed (or was never present)"
+
+      - name: Assert codeql directory is removed
+        run: |
+          echo "Checking /opt/hostedtoolcache/CodeQL is removed"
+          if [ -d /opt/hostedtoolcache/CodeQL ]; then
+            echo "FAIL: /opt/hostedtoolcache/CodeQL still exists"
+            exit 1
+          fi
+          echo "PASS: /opt/hostedtoolcache/CodeQL is removed (or was never present)"
+
+      - name: Assert build volume is mounted
+        run: |
+          echo "Checking mount at GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
+          MOUNT_POINT=$(df --output=target "$GITHUB_WORKSPACE" | tail -1 | tr -d ' ')
+          echo "actual mount point: $MOUNT_POINT"
+          if [ "$MOUNT_POINT" != "$GITHUB_WORKSPACE" ]; then
+            echo "FAIL: expected GITHUB_WORKSPACE to be a mount point, got: $MOUNT_POINT"
+            exit 1
+          fi
+          echo "PASS: build volume is mounted"
+
+      - name: Report final disk space
+        run: |
+          echo "Disk space after:"
+          df -h
+          echo "PASS"
