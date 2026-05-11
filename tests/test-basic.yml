@@ -1,0 +1,37 @@
+name: Test basic usage (default inputs)
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - id: action
+        uses: .
+        with:
+          root-reserve-mb: '512'
+          temp-reserve-mb: '100'
+          swap-size-mb: '1024'
+      - name: Assert build volume is mounted at GITHUB_WORKSPACE
+        run: |
+          echo "Checking disk space after action..."
+          df -h
+          # Verify that the workspace is on the new LVM volume (buildvg-buildlv)
+          MOUNT=$(df "$GITHUB_WORKSPACE" | tail -1 | awk '{print $1}')
+          echo "Mount device for GITHUB_WORKSPACE: $MOUNT"
+          if [[ "$MOUNT" != *"buildvg"* ]]; then
+            echo "FAIL: expected GITHUB_WORKSPACE to be on buildvg LVM volume, got: $MOUNT"
+            exit 1
+          fi
+          echo "PASS: GITHUB_WORKSPACE is on LVM volume"
+      - name: Assert swap is active
+        run: |
+          echo "Checking swap..."
+          sudo swapon --show
+          SWAP=$(sudo swapon --show | grep -c "buildvg" || true)
+          echo "Swap entries with buildvg: $SWAP"
+          if [ "$SWAP" -lt 1 ]; then
+            echo "FAIL: expected swap on buildvg LVM volume"
+            exit 1
+          fi
+          echo "PASS: swap is active on LVM volume"

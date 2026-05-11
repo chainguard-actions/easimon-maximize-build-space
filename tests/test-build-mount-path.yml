@@ -1,0 +1,49 @@
+name: Test custom build-mount-path input
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - id: action
+        uses: .
+        with:
+          root-reserve-mb: '512'
+          temp-reserve-mb: '100'
+          swap-size-mb: '1024'
+          build-mount-path: '/build'
+          build-mount-path-ownership: 'runner:runner'
+      - name: Assert build volume is mounted at custom path
+        run: |
+          echo "Checking disk space after action..."
+          df -h
+          # Verify that /build is on the new LVM volume (buildvg-buildlv)
+          MOUNT=$(df /build | tail -1 | awk '{print $1}')
+          echo "Mount device for /build: $MOUNT"
+          if [[ "$MOUNT" != *"buildvg"* ]]; then
+            echo "FAIL: expected /build to be on buildvg LVM volume, got: $MOUNT"
+            exit 1
+          fi
+          echo "PASS: /build is on LVM volume"
+      - name: Assert custom mount path is writable by runner
+        run: |
+          echo "Testing write access to /build..."
+          touch /build/test-file
+          if [ ! -f /build/test-file ]; then
+            echo "FAIL: could not create file in /build"
+            exit 1
+          fi
+          rm /build/test-file
+          echo "PASS: /build is writable by runner"
+      - name: Assert swap is active
+        run: |
+          echo "Checking swap..."
+          sudo swapon --show
+          SWAP=$(sudo swapon --show | grep -c "buildvg" || true)
+          echo "Swap entries with buildvg: $SWAP"
+          if [ "$SWAP" -lt 1 ]; then
+            echo "FAIL: expected swap on buildvg LVM volume"
+            exit 1
+          fi
+          echo "PASS: swap is active on LVM volume"
