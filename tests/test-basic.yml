@@ -1,0 +1,58 @@
+name: Test basic usage (default inputs)
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Record disk space before
+        id: before
+        run: |
+          BEFORE=$(df --output=avail "$GITHUB_WORKSPACE" | tail -1)
+          echo "avail_kb=$BEFORE" >> "$GITHUB_OUTPUT"
+          echo "Disk available before: ${BEFORE} KB"
+
+      - id: action
+        uses: .
+        with:
+          root-reserve-mb: '1024'
+          temp-reserve-mb: '100'
+          swap-size-mb: '1024'
+          remove-dotnet: 'false'
+          remove-android: 'false'
+          remove-haskell: 'false'
+          remove-codeql: 'false'
+          remove-docker-images: 'false'
+
+      - name: Assert build volume is mounted at GITHUB_WORKSPACE
+        run: |
+          echo "Checking that GITHUB_WORKSPACE is on the LVM build volume..."
+          MOUNT_POINT=$(df --output=target "$GITHUB_WORKSPACE" | tail -1)
+          echo "Mount point for GITHUB_WORKSPACE: $MOUNT_POINT"
+          # The workspace should now be on the LVM buildlv device
+          DEVICE=$(df --output=source "$GITHUB_WORKSPACE" | tail -1)
+          echo "Device: $DEVICE"
+          if [[ "$DEVICE" != *"buildlv"* && "$DEVICE" != *"buildvg"* ]]; then
+            echo "FAIL: expected GITHUB_WORKSPACE to be on LVM buildlv, got: $DEVICE"
+            exit 1
+          fi
+          echo "PASS: GITHUB_WORKSPACE is on LVM build volume ($DEVICE)"
+
+      - name: Assert swap is active
+        run: |
+          echo "Checking swap is active..."
+          SWAP_INFO=$(swapon --show)
+          echo "Swap info: $SWAP_INFO"
+          if ! echo "$SWAP_INFO" | grep -q "swap"; then
+            echo "FAIL: expected swap to be active"
+            exit 1
+          fi
+          echo "PASS: swap is active"
+
+      - name: Assert disk space report is available
+        run: |
+          echo "Checking disk space..."
+          df -h
+          echo "PASS: disk space report completed"
