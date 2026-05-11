@@ -8,7 +8,9 @@ Hardened by [Chainguard](https://www.chainguard.dev) from the upstream action at
 
 | Version | Tag | Upstream commit |
 |---------|-----|-----------------|
+| v10 | [`v10`](https://github.com/chainguard-actions/maximize-build-space/tree/v10) | — |
 | v6 | [`v6`](https://github.com/chainguard-actions/maximize-build-space/tree/v6) | — |
+| v7 | [`v7`](https://github.com/chainguard-actions/maximize-build-space/tree/v7) | — |
 
 ## Privacy
 
