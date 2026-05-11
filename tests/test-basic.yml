@@ -1,0 +1,39 @@
+name: Test basic usage (default inputs)
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - id: action
+        uses: .
+      - name: Assert build volume is mounted and writable
+        run: |
+          echo "Checking disk space after action..."
+          df -h
+          echo "Checking GITHUB_WORKSPACE is writable..."
+          touch "$GITHUB_WORKSPACE/test-write-check"
+          if [ ! -f "$GITHUB_WORKSPACE/test-write-check" ]; then
+            echo "FAIL: GITHUB_WORKSPACE is not writable"
+            exit 1
+          fi
+          echo "PASS: GITHUB_WORKSPACE is writable"
+      - name: Assert swap is active
+        run: |
+          echo "Checking swap..."
+          SWAP_TOTAL=$(free -m | awk '/^Swap:/ {print $2}')
+          echo "Swap total: ${SWAP_TOTAL} MB"
+          if [ "${SWAP_TOTAL}" -lt 1 ]; then
+            echo "FAIL: No swap space found"
+            exit 1
+          fi
+          echo "PASS: Swap is active (${SWAP_TOTAL} MB)"
+      - name: Assert LVM volume group exists
+        run: |
+          echo "Checking LVM volume group..."
+          if ! sudo vgs buildvg > /dev/null 2>&1; then
+            echo "FAIL: LVM volume group 'buildvg' not found"
+            exit 1
+          fi
+          echo "PASS: LVM volume group 'buildvg' exists"

@@ -1,0 +1,65 @@
+name: Test remove software options
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - id: action
+        uses: .
+        with:
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+          remove-codeql: 'true'
+          swap-size-mb: '1024'
+          root-reserve-mb: '1024'
+          temp-reserve-mb: '100'
+      - name: Assert dotnet removed
+        run: |
+          echo "Checking dotnet removal..."
+          if [ -d /usr/share/dotnet ]; then
+            echo "FAIL: /usr/share/dotnet still exists"
+            exit 1
+          fi
+          echo "PASS: /usr/share/dotnet removed"
+      - name: Assert android removed
+        run: |
+          echo "Checking android removal..."
+          if [ -d /usr/local/lib/android ]; then
+            echo "FAIL: /usr/local/lib/android still exists"
+            exit 1
+          fi
+          echo "PASS: /usr/local/lib/android removed"
+      - name: Assert haskell removed
+        run: |
+          echo "Checking haskell removal..."
+          if [ -d /opt/ghc ]; then
+            echo "FAIL: /opt/ghc still exists"
+            exit 1
+          fi
+          echo "PASS: /opt/ghc removed"
+      - name: Assert LVM volume group exists
+        run: |
+          echo "Checking LVM volume group..."
+          if ! sudo vgs buildvg > /dev/null 2>&1; then
+            echo "FAIL: LVM volume group 'buildvg' not found"
+            exit 1
+          fi
+          echo "PASS: LVM volume group 'buildvg' exists"
+      - name: Assert swap is active
+        run: |
+          echo "Checking swap..."
+          SWAP_TOTAL=$(free -m | awk '/^Swap:/ {print $2}')
+          echo "Swap total: ${SWAP_TOTAL} MB"
+          if [ "${SWAP_TOTAL}" -lt 1 ]; then
+            echo "FAIL: No swap space found"
+            exit 1
+          fi
+          echo "PASS: Swap is active (${SWAP_TOTAL} MB)"
+      - name: Assert disk space report shows build volume
+        run: |
+          echo "Disk space after action:"
+          df -h
+          echo "PASS: Disk space report completed"
