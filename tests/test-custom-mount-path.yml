@@ -1,0 +1,59 @@
+name: Test custom build-mount-path
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install LVM tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq lvm2
+
+      - name: Create custom mount directory
+        run: |
+          sudo mkdir -p /build
+          sudo chown runner:runner /build
+
+      - name: Run action with custom build-mount-path
+        id: action
+        uses: .
+        with:
+          root-reserve-mb: '512'
+          temp-reserve-mb: '100'
+          swap-size-mb: '1024'
+          build-mount-path: '/build'
+
+      - name: Assert build volume is mounted at custom path
+        run: |
+          echo "Checking that /build is a mount point..."
+          if ! mountpoint -q /build; then
+            echo "FAIL: /build is not a mount point"
+            df -h
+            exit 1
+          fi
+          echo "PASS: /build is a mount point"
+
+      - name: Assert custom mount path is writable
+        run: |
+          echo "Checking that /build is writable..."
+          if ! touch /build/test-file; then
+            echo "FAIL: /build is not writable"
+            exit 1
+          fi
+          rm -f /build/test-file
+          echo "PASS: /build is writable"
+
+      - name: Assert swap is active
+        run: |
+          echo "Checking swap is active..."
+          SWAP_LINES=$(swapon --show | wc -l)
+          echo "Swap lines: $SWAP_LINES"
+          if [ "$SWAP_LINES" -lt 2 ]; then
+            echo "FAIL: No active swap found"
+            swapon --show
+            exit 1
+          fi
+          echo "PASS: Swap is active"
