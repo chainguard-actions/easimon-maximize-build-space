@@ -1,0 +1,7 @@
+{
+  "owner": "easimon",
+  "name": "maximize-build-space",
+  "visibility": "internal",
+  "description": "Maximize the available disk space for your build job",
+  "block_publish": false
+}
