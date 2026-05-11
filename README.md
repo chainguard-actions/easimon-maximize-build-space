@@ -11,6 +11,8 @@ Hardened by [Chainguard](https://www.chainguard.dev) from the upstream action at
 | v10 | [`v10`](https://github.com/chainguard-actions/maximize-build-space/tree/v10) | — |
 | v6 | [`v6`](https://github.com/chainguard-actions/maximize-build-space/tree/v6) | — |
 | v7 | [`v7`](https://github.com/chainguard-actions/maximize-build-space/tree/v7) | — |
+| v8 | [`v8`](https://github.com/chainguard-actions/maximize-build-space/tree/v8) | — |
+| v9 | [`v9`](https://github.com/chainguard-actions/maximize-build-space/tree/v9) | — |
 
 ## Privacy
 
