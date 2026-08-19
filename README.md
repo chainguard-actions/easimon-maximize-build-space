@@ -12,7 +12,7 @@ Hardened by [Chainguard](https://www.chainguard.dev) from the upstream action at
 | v6 | [`v6`](https://github.com/chainguard-actions/easimon-maximize-build-space/tree/v6) | — |
 | v7 | [`v7`](https://github.com/chainguard-actions/easimon-maximize-build-space/tree/v7) | — |
 | v8 | [`v8`](https://github.com/chainguard-actions/easimon-maximize-build-space/tree/v8) | — |
-| v9 | [`v9`](https://github.com/chainguard-actions/easimon-maximize-build-space/tree/v9) | — |
+| v9 | [`v9`](https://github.com/chainguard-actions/easimon-maximize-build-space/tree/v9) | [`bb67daa`](https://github.com/easimon/maximize-build-space/commit/bb67daa4a202a2ea017b6410ea1f07da0c9a0251) |
 
 ## Privacy
 
