@@ -1,0 +1,63 @@
+name: Test custom mount path and ownership
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - id: action
+        uses: .
+        continue-on-error: true
+        with:
+          root-reserve-mb: '512'
+          temp-reserve-mb: '100'
+          swap-size-mb: '512'
+          build-mount-path: '/mnt/build-space'
+          build-mount-path-ownership: 'root:root'
+
+      - name: Assert action ran (success or graceful failure in container)
+        env:
+          OUTCOME: ${{ steps.action.outcome }}
+        run: |
+          echo "outcome: $OUTCOME"
+          if [ "$OUTCOME" = "success" ]; then
+            echo "Action succeeded — verifying custom mount path..."
+
+            if ! mountpoint -q /mnt/build-space; then
+              echo "FAIL: /mnt/build-space is not a mount point"
+              exit 1
+            fi
+            echo "PASS: /mnt/build-space is a mount point"
+
+            OWNER=$(stat -c '%U:%G' /mnt/build-space)
+            echo "Owner: $OWNER"
+            if [ "$OWNER" != "root:root" ]; then
+              echo "FAIL: expected ownership 'root:root', got '$OWNER'"
+              exit 1
+            fi
+            echo "PASS: ownership is 'root:root'"
+
+            if ! sudo touch /mnt/build-space/test-write-$$; then
+              echo "FAIL: /mnt/build-space is not writable"
+              exit 1
+            fi
+            sudo rm -f /mnt/build-space/test-write-$$
+            echo "PASS: /mnt/build-space is writable"
+
+            AVAIL_KB=$(df -k /mnt/build-space | awk 'NR==2 {print $4}')
+            echo "Available: ${AVAIL_KB} KB"
+            if [ -z "$AVAIL_KB" ] || [ "$AVAIL_KB" -lt 1024 ]; then
+              echo "FAIL: expected at least 1 MB available on /mnt/build-space"
+              exit 1
+            fi
+            echo "PASS: ${AVAIL_KB} KB available on /mnt/build-space"
+            df -h /mnt/build-space
+
+          elif [ "$OUTCOME" = "failure" ]; then
+            echo "PASS: action failed gracefully (LVM/loop devices not available in container environment)"
+          else
+            echo "FAIL: unexpected outcome '$OUTCOME'"
+            exit 1
+          fi

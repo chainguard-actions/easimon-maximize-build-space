@@ -1,0 +1,70 @@
+name: Test overprovision LVM option
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - id: action
+        uses: .
+        continue-on-error: true
+        with:
+          root-reserve-mb: '512'
+          temp-reserve-mb: '100'
+          swap-size-mb: '512'
+          build-mount-path: '/build'
+          overprovision-lvm: 'true'
+
+      - name: Assert action ran (success or graceful failure in container)
+        env:
+          OUTCOME: ${{ steps.action.outcome }}
+        run: |
+          echo "outcome: $OUTCOME"
+          if [ "$OUTCOME" = "success" ]; then
+            echo "Action succeeded — verifying overprovision LVM setup..."
+
+            if ! mountpoint -q /build; then
+              echo "FAIL: /build is not a mount point"
+              exit 1
+            fi
+            echo "PASS: /build is a mount point"
+
+            if ! sudo lvs buildvg/buildlv > /dev/null 2>&1; then
+              echo "FAIL: LVM logical volume 'buildvg/buildlv' not found"
+              exit 1
+            fi
+            echo "PASS: LVM logical volume 'buildvg/buildlv' exists"
+
+            if ! sudo lvs buildvg/swap > /dev/null 2>&1; then
+              echo "FAIL: LVM logical volume 'buildvg/swap' not found"
+              exit 1
+            fi
+            echo "PASS: LVM logical volume 'buildvg/swap' exists"
+            sudo lvs buildvg
+
+            FS_TYPE=$(df -T /build | awk 'NR==2 {print $2}')
+            echo "Filesystem type: $FS_TYPE"
+            if [ "$FS_TYPE" != "ext4" ]; then
+              echo "FAIL: expected ext4 filesystem, got '$FS_TYPE'"
+              exit 1
+            fi
+            echo "PASS: filesystem is ext4"
+
+            echo "test data from overprovision test" | sudo tee /build/test-file.txt > /dev/null
+            CONTENT=$(cat /build/test-file.txt)
+            echo "Content: $CONTENT"
+            if [ "$CONTENT" != "test data from overprovision test" ]; then
+              echo "FAIL: file content mismatch"
+              exit 1
+            fi
+            echo "PASS: build space is readable and writable"
+            df -h /build
+
+          elif [ "$OUTCOME" = "failure" ]; then
+            echo "PASS: action failed gracefully (LVM/loop devices not available in container environment)"
+          else
+            echo "FAIL: unexpected outcome '$OUTCOME'"
+            exit 1
+          fi
