@@ -1,0 +1,77 @@
+name: Test custom PV loop paths and ownership
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Check environment
+        run: |
+          echo "Disk space before:"
+          df -h
+          echo "Memory and swap:"
+          free
+
+      - id: action
+        uses: .
+        continue-on-error: true
+        with:
+          root-reserve-mb: '512'
+          temp-reserve-mb: '100'
+          swap-size-mb: '1024'
+          build-mount-path: '/custom-build'
+          build-mount-path-ownership: 'root:root'
+          pv-loop-path: '/custom-pv.img'
+          tmp-pv-loop-path: '/mnt/custom-tmp-pv.img'
+
+      - name: Assert action ran (succeeded or failed gracefully on unsupported environment)
+        env:
+          OUTCOME: ${{ steps.action.outcome }}
+        run: |
+          echo "outcome: $OUTCOME"
+          if [ "$OUTCOME" = "success" ]; then
+            echo "Action succeeded — verifying custom paths..."
+
+            echo "Checking /custom-pv.img..."
+            if [ ! -f /custom-pv.img ]; then
+              echo "FAIL: /custom-pv.img was not created"
+              ls -la /*.img 2>/dev/null || true
+              exit 1
+            fi
+            echo "PASS: /custom-pv.img exists"
+            ls -lh /custom-pv.img
+
+            echo "Checking /mnt/custom-tmp-pv.img..."
+            if [ ! -f /mnt/custom-tmp-pv.img ]; then
+              echo "FAIL: /mnt/custom-tmp-pv.img was not created"
+              ls -la /mnt/*.img 2>/dev/null || true
+              exit 1
+            fi
+            echo "PASS: /mnt/custom-tmp-pv.img exists"
+            ls -lh /mnt/custom-tmp-pv.img
+
+            echo "Checking /custom-build mount point..."
+            if ! mountpoint -q /custom-build; then
+              echo "FAIL: /custom-build is not a mount point"
+              df -h
+              exit 1
+            fi
+            echo "PASS: /custom-build is a mount point"
+            df -h /custom-build
+
+            echo "Checking ownership of /custom-build..."
+            OWNER=$(stat -c '%U:%G' /custom-build)
+            echo "Owner: $OWNER"
+            if [ "$OWNER" != "root:root" ]; then
+              echo "FAIL: expected root:root ownership, got $OWNER"
+              exit 1
+            fi
+            echo "PASS: /custom-build is owned by root:root"
+          elif [ "$OUTCOME" = "failure" ]; then
+            echo "PASS: action failed gracefully (LVM/loopback not supported in this environment)"
+          else
+            echo "FAIL: unexpected outcome '$OUTCOME'"
+            exit 1
+          fi

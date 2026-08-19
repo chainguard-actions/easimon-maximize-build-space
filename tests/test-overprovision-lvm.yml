@@ -1,4 +1,4 @@
-name: Test basic usage with custom mount path
+name: Test overprovision LVM option
 on:
   workflow_dispatch:
 jobs:
@@ -7,14 +7,8 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Check available tools
+      - name: Check environment
         run: |
-          echo "Checking for LVM tools..."
-          which losetup || echo "losetup not found"
-          which pvcreate || echo "pvcreate not found"
-          which vgcreate || echo "vgcreate not found"
-          which lvcreate || echo "lvcreate not found"
-          which mkfs.ext4 || echo "mkfs.ext4 not found"
           echo "Disk space before:"
           df -h
           echo "Memory and swap:"
@@ -27,6 +21,7 @@ jobs:
           root-reserve-mb: '512'
           temp-reserve-mb: '100'
           swap-size-mb: '1024'
+          overprovision-lvm: 'true'
           build-mount-path: '/build'
           build-mount-path-ownership: 'runner:runner'
 
@@ -36,37 +31,43 @@ jobs:
         run: |
           echo "outcome: $OUTCOME"
           if [ "$OUTCOME" = "success" ]; then
-            echo "Action succeeded — verifying mount point..."
+            echo "Action succeeded — verifying overprovision LVM setup..."
+
+            echo "Checking /build mount point..."
             if ! mountpoint -q /build; then
-              echo "FAIL: /build is not a mount point after successful action"
+              echo "FAIL: /build is not a mount point"
               df -h
               exit 1
             fi
             echo "PASS: /build is a mount point"
             df -h /build
 
-            echo "Checking swap..."
-            SWAP_TOTAL=$(free -m | awk '/^Swap:/ {print $2}')
-            echo "Swap total: ${SWAP_TOTAL} MiB"
-            if [ -z "$SWAP_TOTAL" ] || [ "$SWAP_TOTAL" -lt 512 ]; then
-              echo "FAIL: expected at least 512 MiB swap, got ${SWAP_TOTAL} MiB"
+            echo "Checking LVM logical volumes..."
+            if ! sudo lvs buildvg/buildlv > /dev/null 2>&1; then
+              echo "FAIL: LVM logical volume 'buildvg/buildlv' not found"
+              sudo lvs || true
               exit 1
             fi
-            echo "PASS: swap is active (${SWAP_TOTAL} MiB)"
+            echo "PASS: LVM logical volume 'buildvg/buildlv' exists"
+            sudo lvs buildvg
+
+            echo "Checking swap LV..."
+            if ! sudo lvs buildvg/swap > /dev/null 2>&1; then
+              echo "FAIL: LVM logical volume 'buildvg/swap' not found"
+              sudo lvs || true
+              exit 1
+            fi
+            echo "PASS: LVM logical volume 'buildvg/swap' exists"
 
             echo "Testing write to /build..."
-            echo "hello from test" > /build/test-file.txt
-            if [ ! -f /build/test-file.txt ]; then
-              echo "FAIL: could not write to /build"
-              exit 1
-            fi
+            echo "overprovision test" > /build/test-file.txt
             CONTENT=$(cat /build/test-file.txt)
             echo "Content: $CONTENT"
-            if [ "$CONTENT" != "hello from test" ]; then
+            if [ "$CONTENT" != "overprovision test" ]; then
               echo "FAIL: file content mismatch"
               exit 1
             fi
-            echo "PASS: /build is writable"
+            echo "PASS: /build is writable with overprovision-lvm=true"
           elif [ "$OUTCOME" = "failure" ]; then
             echo "PASS: action failed gracefully (LVM/loopback not supported in this environment)"
           else
