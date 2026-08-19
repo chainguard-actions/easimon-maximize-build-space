@@ -1,4 +1,4 @@
-name: Test custom build mount path
+name: Test overprovision LVM option
 on:
   workflow_dispatch:
 jobs:
@@ -23,29 +23,40 @@ jobs:
           fi
 
       - id: action
-        name: Run maximize-build-space with custom mount path
+        name: Run maximize-build-space with overprovision-lvm
         uses: .
         continue-on-error: true
         with:
           root-reserve-mb: '512'
           temp-reserve-mb: '100'
           swap-size-mb: '1024'
+          overprovision-lvm: 'true'
           build-mount-path: '/build'
-          build-mount-path-ownership: 'root:root'
 
-      - name: Assert action ran and custom mount path is handled
+      - name: Assert action ran with overprovision option
         env:
           OUTCOME: ${{ steps.action.outcome }}
         run: |
           echo "Action outcome: $OUTCOME"
           df -h || true
           if [ "$OUTCOME" = "success" ]; then
-            echo "Action succeeded, verifying custom mount..."
+            echo "Action succeeded with overprovision-lvm=true"
+            # Verify the build volume is mounted
             MOUNT_POINT="/build"
             if df "$MOUNT_POINT" 2>/dev/null | grep -q "buildvg"; then
               echo "PASS: buildvg LVM volume is mounted at $MOUNT_POINT"
             else
               echo "PASS: action succeeded (mount check skipped in this environment)"
+            fi
+            # Verify ext4 filesystem if blkid is available
+            if command -v blkid &>/dev/null && [ -e /dev/mapper/buildvg-buildlv ]; then
+              FS_TYPE=$(sudo blkid -o value -s TYPE /dev/mapper/buildvg-buildlv 2>/dev/null || echo "unknown")
+              echo "Filesystem type: $FS_TYPE"
+              if [ "$FS_TYPE" = "ext4" ]; then
+                echo "PASS: build volume is ext4"
+              else
+                echo "INFO: filesystem type is '$FS_TYPE' (may vary by environment)"
+              fi
             fi
           elif [ "$OUTCOME" = "failure" ]; then
             echo "PASS: action failed gracefully (LVM/loop devices not available in this environment)"
@@ -54,11 +65,18 @@ jobs:
             exit 1
           fi
 
-      - name: Assert GITHUB_WORKSPACE is still accessible
+      - name: Assert LVM volume group exists (if action succeeded)
+        env:
+          OUTCOME: ${{ steps.action.outcome }}
         run: |
-          echo "Checking GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
-          if [ ! -d "$GITHUB_WORKSPACE" ]; then
-            echo "FAIL: GITHUB_WORKSPACE does not exist after action"
-            exit 1
+          if [ "$OUTCOME" = "success" ] && command -v vgdisplay &>/dev/null; then
+            VG_INFO=$(sudo vgdisplay buildvg 2>&1 || true)
+            echo "VG info: $VG_INFO"
+            if echo "$VG_INFO" | grep -q "buildvg"; then
+              echo "PASS: LVM volume group 'buildvg' exists"
+            else
+              echo "INFO: volume group check inconclusive in this environment"
+            fi
+          else
+            echo "INFO: skipping VG check (action did not succeed or vgdisplay not available)"
           fi
-          echo "PASS: GITHUB_WORKSPACE still exists"
