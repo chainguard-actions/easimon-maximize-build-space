@@ -1,0 +1,167 @@
+name: Test
+on:
+  workflow_dispatch:
+  schedule:
+    # weekly, randomly chosen time
+    - cron: "17 18 * * 0"
+  push:
+    branches-ignore:
+      - 'test-report'
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+permissions: {}
+
+env:
+  REPORT_DIR: /tmp/build-report
+
+jobs:
+  test-action:
+    name: Test action
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-18.04
+          - ubuntu-20.04
+          - ubuntu-22.04
+        remove-android:
+          - 'true'
+          - 'false'
+        remove-dotnet:
+          - 'true'
+          - 'false'
+        remove-haskell:
+          - 'true'
+          - 'false'
+        remove-codeql:
+          - 'true'
+          - 'false'
+        remove-docker-images:
+          - 'true'
+          - 'false'
+
+    steps:
+      - name: Determine free space before
+        env:
+          GITHUB_WORKSPACE_PATH: ${{ github.workspace }}
+        run: |
+          safe_ws=$(printf '%s' "$GITHUB_WORKSPACE_PATH" | tr -d '\n\r')
+          echo "FREE_GIG_BEFORE=$(df --output=avail --sync -BG "$safe_ws" | tail -1 | sed 's/[^0-9]*//g')" >> $GITHUB_ENV
+
+      - name: Check out Maximize Build Space action
+        uses: actions/checkout@0717577d45739eb3c851188b29f50ed6c0b2194e # v2
+        with:
+          path: ./.github/actions/maximize-test
+
+      - name: Maximize build space
+        uses: ./.github/actions/maximize-test
+        with:
+          remove-android:       ${{ matrix.remove-android }}
+          remove-dotnet:        ${{ matrix.remove-dotnet }}
+          remove-haskell:       ${{ matrix.remove-haskell }}
+          remove-codeql:        ${{ matrix.remove-codeql }}
+          remove-docker-images: ${{ matrix.remove-docker-images }}
+
+      - name: Determine free space after
+        env:
+          GITHUB_WORKSPACE_PATH: ${{ github.workspace }}
+        run: |
+          safe_ws=$(printf '%s' "$GITHUB_WORKSPACE_PATH" | tr -d '\n\r')
+          echo "FREE_GIG_AFTER=$(df --output=avail --sync -BG "$safe_ws" | tail -1 | sed 's/[^0-9]*//g')" >> $GITHUB_ENV
+
+      - name: Calculate freed space
+        env:
+          MATRIX_OS: ${{ matrix.os }}
+          MATRIX_REMOVE_ANDROID: ${{ matrix.remove-android }}
+          MATRIX_REMOVE_DOTNET: ${{ matrix.remove-dotnet }}
+          MATRIX_REMOVE_HASKELL: ${{ matrix.remove-haskell }}
+          MATRIX_REMOVE_CODEQL: ${{ matrix.remove-codeql }}
+          MATRIX_REMOVE_DOCKER_IMAGES: ${{ matrix.remove-docker-images }}
+        run: |
+          REPORT_FILENAME_BASE="${REPORT_DIR}/${MATRIX_OS}_${MATRIX_REMOVE_ANDROID}_${MATRIX_REMOVE_DOTNET}_${MATRIX_REMOVE_HASKELL}_${MATRIX_REMOVE_CODEQL}_${MATRIX_REMOVE_DOCKER_IMAGES}"
+          FREED_GIG=$(expr ${FREE_GIG_AFTER} - ${FREE_GIG_BEFORE})
+
+          echo "Free space before: ${FREE_GIG_BEFORE}G"
+          echo "Free space after : ${FREE_GIG_AFTER}G"
+          echo "Space freed      : ${FREED_GIG}G"
+
+          mkdir -p "${REPORT_DIR}"
+
+          REMOVE_ANDROID="${MATRIX_REMOVE_ANDROID}"
+          REMOVE_DOTNET="${MATRIX_REMOVE_DOTNET}"
+          REMOVE_HASKELL="${MATRIX_REMOVE_HASKELL}"
+          REMOVE_CODEQL="${MATRIX_REMOVE_CODEQL}"
+          REMOVE_DOCKER_IMAGES="${MATRIX_REMOVE_DOCKER_IMAGES}"
+
+          cat <<EOF > "${REPORT_FILENAME_BASE}.json"
+            {
+              "os":                   "${MATRIX_OS}",
+              "remove_android":       "${REMOVE_ANDROID//false/}",
+              "remove_dotnet":        "${REMOVE_DOTNET//false/}",
+              "remove_haskell":       "${REMOVE_HASKELL//false/}",
+              "remove_codeql":        "${REMOVE_CODEQL//false/}",
+              "remove_docker_images": "${REMOVE_DOCKER_IMAGES//false/}",
+              "space_free_before":    "${FREE_GIG_BEFORE}",
+              "space_free_after":     "${FREE_GIG_AFTER}",
+              "space_freed":          "${FREED_GIG}"
+            }
+          EOF
+          jq -r '[.os, .remove_android, .remove_dotnet, .remove_haskell, .remove_codeql, .remove_docker_images, .space_freed, .space_free_after] | join(" | ")' < "${REPORT_FILENAME_BASE}.json" >> "${REPORT_FILENAME_BASE}.txt"
+
+      - name: Upload disk space report
+        uses: actions/upload-artifact@82c141cc518b40d92cc801eee768e7aafc9c2fa2 # v2
+        with:
+          name: disk-space-report-single
+          path: ${{ env.REPORT_DIR }}
+
+  collect-reports:
+    name: Collect reports
+    runs-on: ubuntu-latest
+    needs: test-action
+    permissions:
+      contents: write
+    env:
+      REPORT_FILE: space-free-report.md
+
+    steps:
+      - name: Download single reports
+        uses: actions/download-artifact@cbed621e49e4c01b044d60f6c80ea4ed6328b281 # v2
+        with:
+          name: disk-space-report-single
+          path: ${{ env.REPORT_DIR }}
+
+      - name: Join Markdown report
+        run: |
+          echo 'OS | Android SDKs removed | .NET SDKs removed | Haskell removed | CodeQL Removed | Cached Docker Images Removed | GB freed | GB free' > "${REPORT_DIR}/${REPORT_FILE}"
+          echo '---|:--------------------:|:-----------------:|:---------------:|:--------------:|:----------------------------:|---------:|-------:' >> "${REPORT_DIR}/${REPORT_FILE}"
+          cat ${REPORT_DIR}/*.txt >> "${REPORT_DIR}/${REPORT_FILE}"
+
+      - name: Upload collected report
+        uses: actions/upload-artifact@82c141cc518b40d92cc801eee768e7aafc9c2fa2 # v2
+        with:
+          name: disk-space-report-markdown
+          path: ${{ env.REPORT_DIR }}/${{ env.REPORT_FILE }}
+
+      - name: Checkout report branch
+        uses: actions/checkout@0717577d45739eb3c851188b29f50ed6c0b2194e # v2
+        with:
+          ref: test-report
+
+      - name: Overwrite old report
+        run: |
+          cp README.md.template README.md
+          cat "${REPORT_DIR}/${REPORT_FILE}" >> README.md
+
+          cat "${REPORT_DIR}/${REPORT_FILE}"
+
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add README.md
+          git commit -m "Generated new report" && git push || echo "Report unchanged, not updating."

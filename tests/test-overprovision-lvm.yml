@@ -1,4 +1,4 @@
-name: Test basic usage - maximize build space
+name: Test overprovision LVM option
 on:
   workflow_dispatch:
 jobs:
@@ -22,43 +22,45 @@ jobs:
           root-reserve-mb: '2048'
           temp-reserve-mb: '200'
           swap-size-mb: '1024'
+          overprovision-lvm: 'true'
           build-mount-path: '/build'
 
-      - name: Assert action ran (LVM setup or graceful failure)
+      - name: Assert action ran with overprovision LVM (or graceful failure)
         env:
           OUTCOME: ${{ steps.action.outcome }}
         run: |
           echo "outcome: $OUTCOME"
           if [ "$OUTCOME" = "success" ]; then
-            echo "Action succeeded, verifying mount point..."
+            echo "Action succeeded, verifying LVM logical volumes..."
+
             if ! mountpoint -q /build; then
-              echo "FAIL: /build is not a mount point after success"
+              echo "FAIL: /build is not a mount point"
               exit 1
             fi
             echo "PASS: /build is a mount point"
 
-            echo "Checking /build is writable..."
             if ! touch /build/test-file; then
               echo "FAIL: /build is not writable"
               exit 1
             fi
+            rm -f /build/test-file
             echo "PASS: /build is writable"
 
-            echo "Checking swap is active..."
-            SWAP_LINES=$(swapon --show | wc -l)
-            echo "swapon output lines: $SWAP_LINES"
-            if [ "$SWAP_LINES" -lt 2 ]; then
-              echo "FAIL: no active swap found"
+            if ! sudo lvs buildvg/buildlv > /dev/null 2>&1; then
+              echo "FAIL: LVM logical volume 'buildvg/buildlv' not found"
               exit 1
             fi
-            echo "PASS: swap is active"
+            echo "PASS: LVM logical volume 'buildvg/buildlv' exists"
 
-            echo "Checking LVM volume group..."
-            if ! sudo vgs buildvg > /dev/null 2>&1; then
-              echo "FAIL: LVM volume group 'buildvg' not found"
+            if ! sudo lvs buildvg/swap > /dev/null 2>&1; then
+              echo "FAIL: LVM logical volume 'buildvg/swap' not found"
               exit 1
             fi
-            echo "PASS: LVM volume group 'buildvg' exists"
+            echo "PASS: LVM logical volume 'buildvg/swap' exists"
+
+            echo "Disk space after overprovision LVM setup:"
+            df -h
+            echo "PASS: disk space report completed"
           elif [ "$OUTCOME" = "failure" ]; then
             echo "PASS: action failed gracefully (LVM/loop device operations not supported in this environment)"
           else

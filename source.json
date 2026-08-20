@@ -1,6 +1,11 @@
 {
   "owner": "easimon",
   "repo": "maximize-build-space",
-  "version": "",
-  "url": "https://github.com/easimon/maximize-build-space"
+  "version": "v7",
+  "commit_sha": "67afc2d7662c9d296547435e7605cc57a1df46f3",
+  "url": "https://github.com/easimon/maximize-build-space",
+  "policy_sha": "d636be7e43ef829af6e853da6b3c7566db9f72fe",
+  "test_policy_sha": "843adf9e4b8f85d0c08b27b9d0b09dd094b54702",
+  "test_agent_version": "2",
+  "harden_agent_version": "2"
 }

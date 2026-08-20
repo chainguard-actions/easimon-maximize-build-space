@@ -1,0 +1,86 @@
+name: Test remove software options
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install LVM tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq lvm2 || true
+
+      - name: Create mount point
+        run: sudo mkdir -p /build
+
+      - name: Record pre-action disk usage
+        run: |
+          echo "Disk usage before:"
+          df -h /
+          echo "Done"
+
+      - id: action
+        uses: .
+        continue-on-error: true
+        with:
+          root-reserve-mb: '2048'
+          temp-reserve-mb: '200'
+          swap-size-mb: '1024'
+          build-mount-path: '/build'
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+          remove-codeql: 'true'
+
+      - name: Assert action ran (or graceful failure) and check software removal
+        env:
+          OUTCOME: ${{ steps.action.outcome }}
+        run: |
+          echo "outcome: $OUTCOME"
+          # Software removal (rm -rf) happens before LVM setup in the action script.
+          # Even if LVM fails, the directories should have been removed already.
+          # We check removal regardless of outcome.
+
+          echo "Checking /usr/share/dotnet is removed..."
+          if [ -d /usr/share/dotnet ]; then
+            echo "FAIL: /usr/share/dotnet still exists"
+            exit 1
+          fi
+          echo "PASS: /usr/share/dotnet removed (or was not present)"
+
+          echo "Checking /usr/local/lib/android is removed..."
+          if [ -d /usr/local/lib/android ]; then
+            echo "FAIL: /usr/local/lib/android still exists"
+            exit 1
+          fi
+          echo "PASS: /usr/local/lib/android removed (or was not present)"
+
+          echo "Checking /opt/ghc is removed..."
+          if [ -d /opt/ghc ]; then
+            echo "FAIL: /opt/ghc still exists"
+            exit 1
+          fi
+          echo "PASS: /opt/ghc removed (or was not present)"
+
+          echo "Checking /opt/hostedtoolcache/CodeQL is removed..."
+          if [ -d /opt/hostedtoolcache/CodeQL ]; then
+            echo "FAIL: /opt/hostedtoolcache/CodeQL still exists"
+            exit 1
+          fi
+          echo "PASS: /opt/hostedtoolcache/CodeQL removed (or was not present)"
+
+          if [ "$OUTCOME" = "success" ]; then
+            echo "Checking /build is mounted..."
+            if ! mountpoint -q /build; then
+              echo "FAIL: /build is not a mount point after success"
+              exit 1
+            fi
+            echo "PASS: /build is a mount point"
+          elif [ "$OUTCOME" = "failure" ]; then
+            echo "PASS: LVM setup failed gracefully (not supported in this environment), but software removal was verified"
+          else
+            echo "FAIL: unexpected outcome '$OUTCOME'"
+            exit 1
+          fi

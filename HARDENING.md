@@ -1,36 +1,55 @@
+<!-- markdownlint-disable -->
+
 # Hardening Report: easimon--maximize-build-space/v7
 
 > This file was generated automatically by the hardening agent.
 
-**Policy SHA:** `ff50f15e4b79bfbf764dafdfd2579175a6ea9771`
+**Policy SHA:** `d636be7e43ef829af6e853da6b3c7566db9f72fe`
 
 **Test Policy SHA:** `843adf9e4b8f85d0c08b27b9d0b09dd094b54702`
 
-**Harden Agent Version:** `1`
+**Harden Agent Version:** `2`
 
-Action **easimon--maximize-build-space/v7** was hardened automatically. 28 finding(s) were identified and resolved across 1 iteration(s).
+Action **easimon--maximize-build-space/v7** was hardened automatically. 31 finding(s) were identified and resolved across 2 iteration(s).
 
 ## Findings Fixed
 
 ### script-injection (severity: high)
 
-The 'Maximize build disk space' run: step in action.yml directly interpolates ${{ inputs.* }} expressions into the shell script without first assigning them to environment variables. All 13 distinct inputs (build-mount-path, root-reserve-mb, temp-reserve-mb, swap-size-mb, overprovision-lvm, pv-loop-path, tmp-pv-loop-path, remove-dotnet, remove-android, remove-haskell, remove-codeql, remove-docker-images, swap-size-mb) are interpolated directly into shell commands. An attacker who controls these inputs (e.g. via workflow_dispatch or a calling workflow) can inject arbitrary shell commands. Examples include: BUILD_MOUNT_PATH="${{ inputs.build-mount-path }}", if [[ ${{ inputs.remove-dotnet }} == 'true' ]], ROOT_RESERVE_KB=$(expr ${{ inputs.root-reserve-mb }} \* 1024), and sudo touch "${{ inputs.pv-loop-path }}". The fix is to assign each input to an env: variable and reference $ENV_VAR in the run: block instead.
+The composite action's 'Maximize build disk space' run: block directly interpolates multiple ${{ inputs.* }} expressions inside shell commands (sub-rule a). Before the shell executes, GitHub Actions substitutes these values verbatim into the script string, allowing an attacker-controlled input to inject arbitrary shell commands. Affected interpolations include: ${{ inputs.build-mount-path }}, ${{ inputs.root-reserve-mb }}, ${{ inputs.temp-reserve-mb }}, ${{ inputs.swap-size-mb }}, ${{ inputs.overprovision-lvm }}, ${{ inputs.pv-loop-path }}, ${{ inputs.tmp-pv-loop-path }}, ${{ inputs.remove-dotnet }}, ${{ inputs.remove-android }}, ${{ inputs.remove-haskell }}, ${{ inputs.remove-codeql }}, ${{ inputs.remove-docker-images }}. All of these should be moved to env: variables and then referenced as double-quoted shell variables (e.g., "$INPUT_VAR").
 
 Locations:
 
-- `action.yml:74`
-- `action.yml:80`
-- `action.yml:81`
-- `action.yml:82`
-- `action.yml:83`
-- `action.yml:85`
-- `action.yml:86`
-- `action.yml:88`
-- `action.yml:91`
-- `action.yml:95`
-- `action.yml:99`
-- `action.yml:103`
-- `action.yml:107`
+- `action.yml:57`
+
+### github-env-injection (severity: high)
+
+In the workflow's 'Determine free space before' step, the value of ${{ github.workspace }} is embedded directly in a command substitution that writes to $GITHUB_ENV without sanitization (no `printf '%s' ... | tr -d '\n\r'` step). A newline in the workspace path could allow injection of arbitrary environment variables. Similarly, the 'Determine free space after' step has the same pattern. Offending lines: `echo "FREE_GIG_BEFORE=$(df --output=avail --sync -BG "${{ github.workspace }}" | tail -1 | sed 's/[^0-9]*//g')" >> $GITHUB_ENV`
+
+Locations:
+
+- `.github/workflows/test.yaml:44`
+- `.github/workflows/test.yaml:55`
+
+### unpinned-uses (severity: high)
+
+All uses: references in the workflow use mutable version tags (@v2) instead of full 40-character commit SHAs. This means the action code can change without notice, enabling supply-chain attacks. Unpinned references: actions/checkout@v2 (lines ~47, ~107, ~116), actions/upload-artifact@v2 (line ~89), actions/download-artifact@v2 (line ~101).
+
+Locations:
+
+- `.github/workflows/test.yaml:47`
+- `.github/workflows/test.yaml:89`
+- `.github/workflows/test.yaml:101`
+- `.github/workflows/test.yaml:107`
+- `.github/workflows/test.yaml:116`
+
+### missing-permissions (severity: medium)
+
+The workflow file .github/workflows/test.yaml has no top-level `permissions:` key, and neither the 'test-action' job nor the 'collect-reports' job defines a `permissions:` block. Without explicit permissions, the workflow inherits the repository's default token permissions, which may be overly broad (write access to contents, pull-requests, etc.).
+
+Locations:
+
+- `.github/workflows/test.yaml:1`
 
 ### static-inline-injection (severity: high)
 
@@ -252,9 +271,29 @@ Locations:
 
 ### Iteration 1
 
-**Fixes applied:** script-injection, static-inline-injection
+**Fixes applied:** script-injection, static-inline-injection, github-env-injection, unpinned-uses, missing-permissions
 
 **Notes:**
 
-Fixed all 28 script injection findings in action.yml by adding an env: block to the 'Maximize build disk space' step with 12 environment variables (INPUT_BUILD_MOUNT_PATH, INPUT_ROOT_RESERVE_MB, INPUT_TEMP_RESERVE_MB, INPUT_SWAP_SIZE_MB, INPUT_OVERPROVISION_LVM, INPUT_PV_LOOP_PATH, INPUT_TMP_PV_LOOP_PATH, INPUT_REMOVE_DOTNET, INPUT_REMOVE_ANDROID, INPUT_REMOVE_HASKELL, INPUT_REMOVE_CODEQL, INPUT_REMOVE_DOCKER_IMAGES) mapping each ${{ inputs.* }} expression. All occurrences of ${{ inputs.* }} in the run: block were replaced with the corresponding $INPUT_* environment variable references. The ${{ inputs.* }} expressions now only appear in the safe env: map context.
+Fixed all findings in action.yml and .github/workflows/test.yaml:
+
+1. action.yml - script-injection/static-inline-injection: Moved all 12 ${{ inputs.* }} expressions from the 'Maximize build disk space' run: block into an env: block (INPUT_BUILD_MOUNT_PATH, INPUT_ROOT_RESERVE_MB, INPUT_TEMP_RESERVE_MB, INPUT_SWAP_SIZE_MB, INPUT_OVERPROVISION_LVM, INPUT_PV_LOOP_PATH, INPUT_TMP_PV_LOOP_PATH, INPUT_REMOVE_DOTNET, INPUT_REMOVE_ANDROID, INPUT_REMOVE_HASKELL, INPUT_REMOVE_CODEQL, INPUT_REMOVE_DOCKER_IMAGES). All shell references now use double-quoted ${VAR} forms.
+
+2. test.yaml - github-env-injection: Moved ${{ github.workspace }} to env var GITHUB_WORKSPACE_PATH and sanitized with `printf '%s' "$GITHUB_WORKSPACE_PATH" | tr -d '\n\r'` before use in both 'Determine free space before' and 'Determine free space after' steps.
+
+3. test.yaml - unpinned-uses: Pinned all 5 uses: references to full commit SHAs: actions/checkout@v2→0717577d..., actions/upload-artifact@v2→82c141cc..., actions/download-artifact@v2→cbed621e...
+
+4. test.yaml - missing-permissions: Added top-level `permissions: {}` plus job-level permissions (contents: read for test-action, contents: write for collect-reports which pushes to test-report branch).
+
+### Iteration 2
+
+**Fixes applied:** script-injection
+
+**Notes:**
+
+Fixed two script-injection findings in .github/workflows/test.yaml:
+
+1. 'Calculate freed space' step: Moved all six matrix context expressions (${{ matrix.os }}, ${{ matrix.remove-android }}, ${{ matrix.remove-dotnet }}, ${{ matrix.remove-haskell }}, ${{ matrix.remove-codeql }}, ${{ matrix.remove-docker-images }}) into a step-level `env:` block as MATRIX_OS, MATRIX_REMOVE_ANDROID, MATRIX_REMOVE_DOTNET, MATRIX_REMOVE_HASKELL, MATRIX_REMOVE_CODEQL, MATRIX_REMOVE_DOCKER_IMAGES. All shell references updated to use these env vars.
+
+2. 'Overwrite old report' step: Replaced `${{ env.REPORT_DIR }}/${{ env.REPORT_FILE }}` with `"${REPORT_DIR}/${REPORT_FILE}"` — these variables are already available as environment variables from the workflow/job-level env blocks, so no additional env: block was needed. The ${{ }} template expressions are no longer embedded in the run: shell string.
 

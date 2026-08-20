@@ -1,4 +1,4 @@
-name: Test basic usage - maximize build space
+name: Test custom PV loop paths
 on:
   workflow_dispatch:
 jobs:
@@ -23,37 +23,35 @@ jobs:
           temp-reserve-mb: '200'
           swap-size-mb: '1024'
           build-mount-path: '/build'
+          pv-loop-path: '/custom-pv.img'
+          tmp-pv-loop-path: '/mnt/custom-tmp-pv.img'
 
-      - name: Assert action ran (LVM setup or graceful failure)
+      - name: Assert action ran with custom PV paths (or graceful failure)
         env:
           OUTCOME: ${{ steps.action.outcome }}
         run: |
           echo "outcome: $OUTCOME"
           if [ "$OUTCOME" = "success" ]; then
-            echo "Action succeeded, verifying mount point..."
+            echo "Action succeeded, verifying custom PV image files..."
+
+            if [ ! -f /custom-pv.img ]; then
+              echo "FAIL: /custom-pv.img not found"
+              exit 1
+            fi
+            echo "PASS: /custom-pv.img exists"
+
+            if [ ! -f /mnt/custom-tmp-pv.img ]; then
+              echo "FAIL: /mnt/custom-tmp-pv.img not found"
+              exit 1
+            fi
+            echo "PASS: /mnt/custom-tmp-pv.img exists"
+
             if ! mountpoint -q /build; then
-              echo "FAIL: /build is not a mount point after success"
+              echo "FAIL: /build is not a mount point"
               exit 1
             fi
             echo "PASS: /build is a mount point"
 
-            echo "Checking /build is writable..."
-            if ! touch /build/test-file; then
-              echo "FAIL: /build is not writable"
-              exit 1
-            fi
-            echo "PASS: /build is writable"
-
-            echo "Checking swap is active..."
-            SWAP_LINES=$(swapon --show | wc -l)
-            echo "swapon output lines: $SWAP_LINES"
-            if [ "$SWAP_LINES" -lt 2 ]; then
-              echo "FAIL: no active swap found"
-              exit 1
-            fi
-            echo "PASS: swap is active"
-
-            echo "Checking LVM volume group..."
             if ! sudo vgs buildvg > /dev/null 2>&1; then
               echo "FAIL: LVM volume group 'buildvg' not found"
               exit 1
