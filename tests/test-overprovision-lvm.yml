@@ -1,4 +1,4 @@
-name: Test basic usage (default settings)
+name: Test overprovision-lvm option
 on:
   workflow_dispatch:
 jobs:
@@ -11,16 +11,16 @@ jobs:
         run: |
           echo "=== Before ==="
           df -h
-          free
 
       - id: action
-        name: Run maximize-build-space with defaults
+        name: Run maximize-build-space with overprovision-lvm enabled
         uses: .
         continue-on-error: true
         with:
           root-reserve-mb: '512'
           temp-reserve-mb: '100'
           swap-size-mb: '1024'
+          overprovision-lvm: 'true'
 
       - name: Assert action ran and check outcome
         env:
@@ -28,29 +28,41 @@ jobs:
         run: |
           echo "Action outcome: $OUTCOME"
           df -h
-          free
           if [ "$OUTCOME" = "success" ]; then
-            echo "Action succeeded — verifying mount point..."
+            echo "Action succeeded — verifying GITHUB_WORKSPACE is a mount point..."
             if ! mountpoint -q "$GITHUB_WORKSPACE"; then
               echo "FAIL: $GITHUB_WORKSPACE is not a mount point after success"
               exit 1
             fi
-            echo "Checking swap is active..."
-            SWAP_LINES=$(swapon --show | wc -l)
-            swapon --show
-            if [ "$SWAP_LINES" -lt 2 ]; then
-              echo "FAIL: no swap appears to be active"
+            echo "Checking filesystem type..."
+            FS_TYPE=$(df --output=fstype "$GITHUB_WORKSPACE" | tail -1)
+            echo "Filesystem type: $FS_TYPE"
+            if [ "$FS_TYPE" != "ext4" ]; then
+              echo "FAIL: expected ext4 filesystem, got '$FS_TYPE'"
               exit 1
             fi
             echo "Testing write to GITHUB_WORKSPACE..."
             TEST_FILE="$GITHUB_WORKSPACE/test-write-$$.txt"
-            echo "hello from test" > "$TEST_FILE"
+            echo "hello from overprovision test" > "$TEST_FILE"
             if [ ! -f "$TEST_FILE" ]; then
               echo "FAIL: could not write to $GITHUB_WORKSPACE"
               exit 1
             fi
+            CONTENT=$(cat "$TEST_FILE")
+            echo "Content: $CONTENT"
+            if [ "$CONTENT" != "hello from overprovision test" ]; then
+              echo "FAIL: file content mismatch"
+              exit 1
+            fi
             rm -f "$TEST_FILE"
-            echo "PASS: action succeeded and build space is functional"
+            echo "Checking swap is active..."
+            swapon --show
+            SWAP_LINES=$(swapon --show | wc -l)
+            if [ "$SWAP_LINES" -lt 2 ]; then
+              echo "FAIL: no swap appears to be active"
+              exit 1
+            fi
+            echo "PASS: action succeeded with overprovision-lvm and build space is functional"
           elif [ "$OUTCOME" = "failure" ]; then
             echo "PASS: action failed gracefully (LVM/loopback not available in this environment)"
           else

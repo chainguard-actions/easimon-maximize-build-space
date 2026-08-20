@@ -1,0 +1,68 @@
+name: Test remove software flags
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Record disk space before
+        run: |
+          echo "=== Before ==="
+          df -h /
+          echo ""
+          echo "Dotnet exists: $(test -d /usr/share/dotnet && echo yes || echo no)"
+          echo "Android exists: $(test -d /usr/local/lib/android && echo yes || echo no)"
+          echo "Haskell exists: $(test -d /opt/ghc && echo yes || echo no)"
+
+      - id: action
+        name: Run maximize-build-space with software removal
+        uses: .
+        continue-on-error: true
+        with:
+          root-reserve-mb: '512'
+          temp-reserve-mb: '100'
+          swap-size-mb: '1024'
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+
+      - name: Assert action ran and check outcome
+        env:
+          OUTCOME: ${{ steps.action.outcome }}
+        run: |
+          echo "Action outcome: $OUTCOME"
+          df -h
+          if [ "$OUTCOME" = "success" ]; then
+            echo "Action succeeded — verifying software removal and mount point..."
+            echo "Checking /usr/share/dotnet..."
+            if [ -d /usr/share/dotnet ]; then
+              echo "FAIL: /usr/share/dotnet still exists after remove-dotnet=true"
+              exit 1
+            fi
+            echo "PASS: /usr/share/dotnet was removed (or was not present)"
+            echo "Checking /usr/local/lib/android..."
+            if [ -d /usr/local/lib/android ]; then
+              echo "FAIL: /usr/local/lib/android still exists after remove-android=true"
+              exit 1
+            fi
+            echo "PASS: /usr/local/lib/android was removed (or was not present)"
+            echo "Checking /opt/ghc..."
+            if [ -d /opt/ghc ]; then
+              echo "FAIL: /opt/ghc still exists after remove-haskell=true"
+              exit 1
+            fi
+            echo "PASS: /opt/ghc was removed (or was not present)"
+            echo "Checking that GITHUB_WORKSPACE is a mount point..."
+            if ! mountpoint -q "$GITHUB_WORKSPACE"; then
+              echo "FAIL: $GITHUB_WORKSPACE is not a mount point after success"
+              exit 1
+            fi
+            echo "PASS: action succeeded and build space is mounted"
+          elif [ "$OUTCOME" = "failure" ]; then
+            echo "PASS: action failed gracefully (LVM/loopback not available in this environment)"
+          else
+            echo "FAIL: unexpected outcome '$OUTCOME'"
+            exit 1
+          fi
