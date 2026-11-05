@@ -4,56 +4,23 @@
 
 > This file was generated automatically by the hardening agent.
 
-**Policy SHA:** `d636be7e43ef829af6e853da6b3c7566db9f72fe`
+**Policy SHA:** `374911c4be584df24e6da57af2d990570ef0f859`
 
 **Test Policy SHA:** `843adf9e4b8f85d0c08b27b9d0b09dd094b54702`
 
 **Harden Agent Version:** `2`
 
-Action **easimon--maximize-build-space/v8** was hardened automatically. 32 finding(s) were identified and resolved across 2 iteration(s).
+Action **easimon--maximize-build-space/v8** was hardened automatically. 30 finding(s) were identified and resolved across 1 iteration(s).
 
 ## Findings Fixed
 
 ### script-injection (severity: high)
 
-Sub-rule (a): The 'Maximize build disk space' run: block in action.yml directly interpolates ${{ inputs.* }} expressions inside shell commands. Examples include: `BUILD_MOUNT_PATH="${{ inputs.build-mount-path }}"`, `ROOT_RESERVE_KB=$(expr ${{ inputs.root-reserve-mb }} \* 1024)`, `sudo touch "${{ inputs.pv-loop-path }}"`, `sudo lvcreate -L "${{ inputs.swap-size-mb }}M"`, `sudo chown -R "${{ inputs.build-mount-path-ownership }}"`, and many more. All 28 occurrences of ${{ inputs.* }} are interpolated directly into shell before the shell ever sees them, enabling command injection via crafted input values.
+Sub-rule (a): the composite step 'Maximize build disk space' puts ${{ inputs.* }} expressions straight into its bash run: script. Examples: `BUILD_MOUNT_PATH="${{ inputs.build-mount-path }}"`, `echo "  Root reserve:      ${{ inputs.root-reserve-mb }} MiB"`, `if [[ ${{ inputs.remove-dotnet }} == 'true' ]]; then` (the same unquoted form is used for remove-android, remove-haskell, remove-codeql, remove-docker-images and overprovision-lvm), `ROOT_RESERVE_KB=$(expr ${{ inputs.root-reserve-mb }} \* 1024)`, `TMP_RESERVE_KB=$(expr ${{ inputs.temp-reserve-mb }} \* 1024)`, `sudo touch "${{ inputs.pv-loop-path }}"`, `sudo losetup --find --show "${{ inputs.tmp-pv-loop-path }}"`, `sudo lvcreate -L "${{ inputs.swap-size-mb }}M"` and `sudo chown -R "${{ inputs.build-mount-path-ownership }}"`. Whoever calls the action controls these values, and many of the commands run under sudo, so a crafted value could run arbitrary commands. Fix: pass every input through env: and use it as a double-quoted shell variable, e.g. "$INPUT_ROOT_RESERVE_MB".
 
 Locations:
 
-- `action.yml:72`
-
-### script-injection (severity: high)
-
-Sub-rule (a): The workflow test.yaml directly interpolates ${{ github.workspace }}, ${{ matrix.* }}, and ${{ env.* }} expressions inside run: shell commands. Offending lines include: `echo "FREE_GIG_BEFORE=$(df ... "${{ github.workspace }}" ...)" >> $GITHUB_ENV`, `REPORT_FILENAME_BASE="${REPORT_DIR}/${{ matrix.os }}_${{ matrix.remove-android }}_..."`, `REMOVE_ANDROID="${{ matrix.remove-android }}"`, `"os": "${{ matrix.os }}"` inside a heredoc, and `cat ${{ env.REPORT_DIR }}/${{ env.REPORT_FILE }} >> README.md`. Any ${{ ... }} expression interpolated directly in a run: block is a script-injection risk.
-
-Locations:
-
-- `.github/workflows/test.yaml:49`
-- `.github/workflows/test.yaml:67`
-- `.github/workflows/test.yaml:71`
-- `.github/workflows/test.yaml:83`
-- `.github/workflows/test.yaml:91`
-- `.github/workflows/test.yaml:135`
-
-### unpinned-uses (severity: high)
-
-The workflow .github/workflows/test.yaml references external actions using mutable version tags instead of full 40-character SHA digests, making the workflow vulnerable to supply-chain attacks if those tags are moved. Unpinned references: `actions/checkout@v3` (×2), `actions/upload-artifact@v3` (×2), `actions/download-artifact@v3` (×1).
-
-Locations:
-
-- `.github/workflows/test.yaml:53`
-- `.github/workflows/test.yaml:107`
-- `.github/workflows/test.yaml:117`
-- `.github/workflows/test.yaml:128`
-- `.github/workflows/test.yaml:131`
-
-### missing-permissions (severity: medium)
-
-The workflow .github/workflows/test.yaml has no top-level `permissions:` key, and neither of its jobs (`test-action`, `collect-reports`) defines a job-level `permissions:` block. This means the workflow runs with the default token permissions (which can include write access to repository contents), violating the principle of least privilege.
-
-Locations:
-
-- `.github/workflows/test.yaml:1`
+- `action.yml:82`
 
 ### static-inline-injection (severity: high)
 
@@ -279,25 +246,125 @@ Locations:
 
 - `action.yml:182`
 
+### prior-fix (severity: high)
+
+Carried forward from this version's previous harden, which fixed it; fix it again unless the code no longer has the problem. The previous harden changed action.yml without recording a finding for it, and this analysis reported nothing there. Re-apply its security changes unless the code no longer needs them. The previous patch:
+```diff
+diff --git a/action.yml b/action.yml
+index e3d9ba1..1d6ef25 100644
+--- a/action.yml
++++ b/action.yml
+@@ -61,6 +61,23 @@ inputs:
+ runs:
+   using: "composite"
+   steps:
+     - name: Disk space report before modification
+       shell: bash
+       run: |
+@@ -73,114 +90,126 @@ runs:
+         echo "Available storage:"
+         df -h
+         echo
+-
+     - name: Maximize build disk space
+       shell: bash
++      env:
++        INPUT_BUILD_MOUNT_PATH: ${{ inputs.build-mount-path }}
++        INPUT_ROOT_RESERVE_MB: ${{ inputs.root-reserve-mb }}
++        INPUT_TEMP_RESERVE_MB: ${{ inputs.temp-reserve-mb }}
++        INPUT_SWAP_SIZE_MB: ${{ inputs.swap-size-mb }}
++        INPUT_OVERPROVISION_LVM: ${{ inputs.overprovision-lvm }}
++        INPUT_PV_LOOP_PATH: ${{ inputs.pv-loop-path }}
++        INPUT_TMP_PV_LOOP_PATH: ${{ inputs.tmp-pv-loop-path }}
++        INPUT_REMOVE_DOTNET: ${{ inputs.remove-dotnet }}
++        INPUT_REMOVE_ANDROID: ${{ inputs.remove-android }}
++        INPUT_REMOVE_HASKELL: ${{ inputs.remove-haskell }}
++        INPUT_REMOVE_CODEQL: ${{ inputs.remove-codeql }}
++        INPUT_REMOVE_DOCKER_IMAGES: ${{ inputs.remove-docker-images }}
++        INPUT_BUILD_MOUNT_PATH_OWNERSHIP: ${{ inputs.build-mount-path-ownership }}
+       run: |
+-          set -euo pipefail
++        set -euo pipefail
+ 
+-          BUILD_MOUNT_PATH="${{ inputs.build-mount-path }}"
+-          if [[ -z "${BUILD_MOUNT_PATH}" ]]; then
+-            BUILD_MOUNT_PATH="${GITHUB_WORKSPACE}"
+-          fi
++        BUILD_MOUNT_PATH="${INPUT_BUILD_MOUNT_PATH}"
++        if [[ -z "${BUILD_MOUNT_PATH}" ]]; then
++          BUILD_MOUNT_PATH="${GITHUB_WORKSPACE}"
++        fi
+ 
+-          echo "Arguments:"
+-          echo
+-          echo "  Root reserve:      ${{ inputs.root-reserve-mb }} MiB"
+-          echo "  Temp reserve:      ${{ inputs.temp-reserve-mb }} MiB"
+-          echo "  Swap space:        ${{ inputs.swap-size-mb }} MiB"
+-          echo "  Overprovision LVM: ${{ inputs.overprovision-lvm }}"
+-          echo "  Mount path:        ${BUILD_MOUNT_PATH}"
+-          echo "  Root PV loop path: ${{ inputs.pv-loop-path }}"
+-          echo "  Temp PV loop path: ${{ inputs.tmp-pv-loop-path }}"
+-          echo -n "  Removing:     "
+-          if [[ ${{ inputs.remove-dotnet }} == 'true' ]]; then
+-            echo -n "dotnet "
+-          fi
+-          if [[ ${{ inputs.remove-android }} == 'true' ]]; then
+-            echo -n "android "
+-          fi
+-          if [[ ${{ inputs.remove-haskell }} == 'true' ]]; then
+-            echo -n "haskell "
+-          fi
+-          if [[ ${{ inputs.remove-codeql }} == 'true' ]]; then
+-            echo -n "codeql "
+-          fi
+-          if [[ ${{ inputs.remove-docker-images }} == 'true' ]]; then
+-            echo -n "docker "
+-          fi
+-          echo
+-
+-          echo "Removing unwanted software... "
+-          if [[ ${{ inputs.remove-dotnet }} == 'true' ]]; then
+-            sudo rm -rf /usr/share/dotnet
+-          fi
+-          if [[ ${{ inputs.remove-android }} == 'true' ]]; then
+-            sudo rm -rf /usr/local/lib/android
+-          fi
+-          if [[ ${{ inputs.remove-haskell }} == 'true' ]]; then
+-            sudo rm -rf /opt/ghc
+-          fi
+-          if [[ ${{ inputs.remove-codeql }} == 'true' ]]; then
+-            sudo rm -rf /opt/hostedtoolcache/CodeQL
+-          fi
+-          if [[ ${{ inputs.remove-docker-images }} == 'true' ]]; then
+-            sudo docker image prune --all --force
+-          fi
+-          echo "... done"
++        echo "Arguments:"
++        echo
++        echo "  Root reserve:      ${INPUT_ROOT_RESERVE_MB} MiB"
++        echo "  Temp reserve:      ${INPUT_TEMP_RESERVE_MB} MiB"
++        echo "  Swap space:        ${INPUT_SWAP_SIZE_MB} MiB"
++        echo "  Overprovision LVM: ${INPUT_OVERPROVISION_LVM}"
++        echo "  Mount path:        ${BUILD_MOUNT_PATH}"
++        echo "  Root PV loop path: ${INPUT_PV_LOOP_PATH}"
++        echo "  Temp PV loop path: ${INPUT_TMP_PV_LOOP_PATH}"
++        echo -n "  Removing:     "
++        if [[ "${INPUT_REMOVE_DOTNET}" == 'true' ]]; then
++          echo -n "dotne
+... (truncated)
+```
+
+Locations:
+
+- `action.yml`
+
 ## Iteration Notes
 
 ### Iteration 1
 
-**Fixes applied:** script-injection, static-inline-injection, unpinned-uses, missing-permissions
+**Fixes applied:** script-injection, static-inline-injection, prior-fix
 
 **Notes:**
 
-Fixed all findings:
-1. action.yml: Moved all 13 ${{ inputs.* }} expressions from the run: block into an env: block on the 'Maximize build disk space' step. Shell script now uses environment variables (INPUT_BUILD_MOUNT_PATH, INPUT_ROOT_RESERVE_MB, etc.).
-2. test.yaml: Moved ${{ github.workspace }} and ${{ matrix.* }} expressions from run: blocks into env: blocks on their respective steps.
-3. test.yaml: Pinned all 5 action references to full SHA digests: actions/checkout@a37ce9120846195fa4ece8f58b268e6043cb2f26 (v3), actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5 (v3), actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a (v3).
-4. test.yaml: Added top-level permissions: contents: write, with job-level overrides (test-action: contents: read, collect-reports: contents: write).
-
-### Iteration 2
-
-**Fixes applied:** script-injection
-
-**Notes:**
-
-Fixed four unquoted shell variable expansions in expr commands in action.yml. The variables $ROOT_FREE_KB, $ROOT_RESERVE_KB, $ROOT_LVM_SIZE_KB, $TMP_FREE_KB, $TMP_RESERVE_KB, and $TMP_LVM_SIZE_KB (derived from user-controlled inputs root-reserve-mb and temp-reserve-mb) are now double-quoted in their expr invocations, preventing word-splitting and shell metacharacter injection.
+The 'Maximize build disk space' step in action.yml now passes all 13 inputs through env: as INPUT_* variables, and the bash script uses them as double-quoted variables instead of inline ${{ }} expressions. This includes the sudo commands (touch, fallocate, losetup, lvcreate, chown), the expr size calculations and the boolean checks. This re-applies the previous harden's patch. The script's logic is otherwise unchanged. Nothing was run or tested after the edit.
 
